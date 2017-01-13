@@ -1,7 +1,6 @@
 
 ## BlockResetter (블락리세터)
-  * https://github.com/sokcuri/BlockResetter
-  * Origin by BlockThemAll (https://github.com/spr0tsuki/BlockThemAll)
+ * Origin by BlockThemAll (https://github.com/spr0tsuki/BlockThemAll)
   
 [>> 다운로드는 이곳에서 <<](https://github.com/sokcuri/BlockResetter/releases)
 
