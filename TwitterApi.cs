@@ -9,7 +9,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
-namespace BlockThemAll
+namespace BlockResetter
 {
     internal class TwitterApi
     {

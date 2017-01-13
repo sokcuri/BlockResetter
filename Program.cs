@@ -7,11 +7,11 @@ using System.Threading;
 using System.Windows.Forms;
 using Newtonsoft.Json;
 
-namespace BlockThemAll
+namespace BlockResetter
 {
     internal class Program
     {
-        public static string ini_file = "BlockThemAll.ini";
+        public static string ini_file = "BlockResetter.ini";
         public static IniSettings settings;
 
         [STAThread]
@@ -25,94 +25,51 @@ namespace BlockThemAll
             Console.WriteLine("Loading login info...");
             TwitterApi twitter = TwitterApi.Login(settings);
             if (twitter.OAuth?.User.Token == null) return;
-
-            HashSet<string> whitelist = new HashSet<string>();
+            
             HashSet<string> blocklist = new HashSet<string>();
 
             string readLine;
             if (!string.IsNullOrEmpty(twitter.MyUserInfo?.id_str))
             {
-                Console.WriteLine("Get My Friends...");
-                UserIdsObject result =
-                    JsonConvert.DeserializeObject<UserIdsObject>(twitter.getMyFriends(twitter.MyUserInfo.id_str, "-1"));
-                while (result != null)
-                {
-                    whitelist.UnionWith(result.ids);
-                    if (result.next_cursor == 0)
-                        break;
-                    result =
-                        JsonConvert.DeserializeObject<UserIdsObject>(twitter.getMyFriends(twitter.MyUserInfo.id_str,
-                            result.next_cursor_str));
-                }
+                Console.WriteLine("Get My Block List... (Max 250000 per 15min)");
+                string cursor = "-1";
 
-                Console.Write("Do you want to include your Followers into whitelist? (Y/N)");
-                readLine = Console.ReadLine();
-                if ((readLine != null) && readLine.ToUpper().Trim().Equals("Y"))
-                {
-                    Console.WriteLine("Get My Followers...");
-                    result = JsonConvert.DeserializeObject<UserIdsObject>(twitter.getMyFollowers(twitter.MyUserInfo.id_str, "-1"));
-                    while (result != null)
+                while (true)
+                    try
                     {
-                        whitelist.UnionWith(result.ids);
-                        if (result.next_cursor == 0)
-                            break;
-                        result =
-                            JsonConvert.DeserializeObject<UserIdsObject>(twitter.getMyFollowers(twitter.MyUserInfo.id_str,
-                                result.next_cursor_str));
+                        UserIdsObject result = JsonConvert.DeserializeObject<UserIdsObject>(twitter.getMyBlockList(cursor));
+                        while (result != null)
+                        {
+                            blocklist.UnionWith(result.ids);
+                            if (result.next_cursor == 0)
+                                break;
+                            result =
+                                JsonConvert.DeserializeObject<UserIdsObject>(twitter.getMyBlockList(cursor = result.next_cursor_str));
+                        }
+
+                        break;
                     }
-                }
-
-                Console.Write("Do you have backup of blocklist? (Y/N)");
-                readLine = Console.ReadLine();
-                if ((readLine != null) && readLine.ToUpper().Trim().Equals("Y"))
-                {
-                    Console.Write("Enter path of your blocklist\n: ");
-                    string input = Console.ReadLine();
-                    if ((input != null) && File.Exists(input.Replace("\"", "")))
-                        blocklist.UnionWith(File.ReadAllText(input.Replace("\"", "")).Split(','));
-                }
-                else
-                {
-                    Console.WriteLine("Get My Block List... (Max 250000 per 15min)");
-                    string cursor = "-1";
-
-                    while (true)
-                        try
+                    catch (RateLimitException)
+                    {
+                        if (Convert.ToBoolean(settings.GetValue("Configuration", "AutoRetry_GetBlockList", false)) == false)
                         {
-                            result = JsonConvert.DeserializeObject<UserIdsObject>(twitter.getMyBlockList(cursor));
-                            while (result != null)
+                            Console.Write("Do you want retry get block list after 15min? (Yes/No/Auto)");
+                            readLine = Console.ReadLine();
+                            if (readLine != null)
                             {
-                                blocklist.UnionWith(result.ids);
-                                if (result.next_cursor == 0)
+                                if (readLine.ToUpper().Trim().StartsWith("N"))
                                     break;
-                                result =
-                                    JsonConvert.DeserializeObject<UserIdsObject>(twitter.getMyBlockList(cursor = result.next_cursor_str));
+                                if (readLine.ToUpper().Trim().StartsWith("A"))
+                                    settings.SetValue("Configuration", "AutoRetry_GetBlockList", true);
                             }
 
-                            break;
+                            settings.Save();
                         }
-                        catch (RateLimitException)
-                        {
-                            if (Convert.ToBoolean(settings.GetValue("Configuration", "AutoRetry_GetBlockList", false)) == false)
-                            {
-                                Console.Write("Do you want retry get block list after 15min? (Yes/No/Auto)");
-                                readLine = Console.ReadLine();
-                                if (readLine != null)
-                                {
-                                    if (readLine.ToUpper().Trim().StartsWith("N"))
-                                        break;
-                                    if (readLine.ToUpper().Trim().StartsWith("A"))
-                                        settings.SetValue("Configuration", "AutoRetry_GetBlockList", true);
-                                }
 
-                                settings.Save();
-                            }
-
-                            Console.WriteLine("Wait for 15min... The job will be resumed at : " +
-                                              DateTime.Now.AddMinutes(15).ToString("hh:mm:ss"));
-                            Thread.Sleep(TimeSpan.FromMinutes(15));
-                        }
-                }
+                        Console.WriteLine("Wait for 15min... The job will be resumed at : " +
+                                            DateTime.Now.AddMinutes(15).ToString("hh:mm:ss"));
+                        Thread.Sleep(TimeSpan.FromMinutes(15));
+                    }
             }
             else
             {
@@ -121,109 +78,43 @@ namespace BlockThemAll
                 return;
             }
 
-            Console.WriteLine($"Whitelist = {whitelist.Count}, Blocklist = {blocklist.Count}");
+            Console.WriteLine($"Blocklist = {blocklist.Count}");
 
-            while (true)
+            long count = 0;
+            bool userStopped = false;
+            RateLimitException rateLimit = null;
+            foreach (string ids in blocklist)
             {
-                Console.Write("Enter @usernames, search phase or filename to Block Them All\n: ");
-                string input = Console.ReadLine();
+                count++;
+                Console.WriteLine(
+                    $"Target= {(ids.Length < 18 ? ids : ids.Substring(0, 17) + "...")}, " +
+                    $"Progress= {count}/{blocklist.Count} ({Math.Round(count * 100 / (double)blocklist.Count, 2)}%)");
 
-                if (input != null)
-                {
-                    string[] targets = File.Exists(input.Replace("\"", ""))
-                        ? File.ReadAllText(input.Replace("\"", ""))
-                            .Split(new[] {",", "\r\n", "\n"}, StringSplitOptions.RemoveEmptyEntries)
-                        : input.Split(',');
+                twitter.UnBlock(ids);
 
-                    Console.WriteLine("Please check your input is correct!");
-                    if (DialogResult.No ==
-                        MessageBox.Show(
-                            string.Join("\n \n", "Please check your input is correct. ", string.Join("\n", targets), " Press Yes to go."),
-                            "Check your input is correct",
-                            MessageBoxButtons.YesNo, MessageBoxIcon.Question)) continue;
-
-                    while (Console.KeyAvailable)
-                        Console.ReadKey(true);
-
-                    bool userStopped = false;
-                    foreach (string target in targets)
-                    {
-                        if (userStopped) break;
-                        if (string.IsNullOrWhiteSpace(target)) continue;
-                        RateLimitException rateLimit = null;
-
-                        do
-                        {
-                            HashSet<string> targetLists = new HashSet<string>();
-
-                            try
-                            {
-                                if (target.StartsWith("@"))
-                                {
-                                    string username = target.Substring(1);
-                                    blocklist.Add(twitter.Block(username, true));
-                                    GetTargetFollowers(twitter, username, rateLimit == null ? "-1" : rateLimit.cursor, targetLists);
-                                }
-                                else
-                                {
-                                    if (rateLimit == null)
-                                        GetTargetSearchResult(twitter, target, true, targetLists);
-                                    else
-                                        GetTargetSearchResult(twitter, rateLimit.target, false, targetLists);
-                                }
-
-                                rateLimit = null;
-                            }
-                            catch (RateLimitException e)
-                            {
-                                rateLimit = e;
-                            }
-
-                            Console.WriteLine("Processing list...");
-
-                            long count = 0;
-                            foreach (string s in targetLists)
-                            {
-                                count++;
-                                if (whitelist.Contains(s) || blocklist.Contains(s)) continue;
-                                blocklist.Add(twitter.Block(s));
-                                Console.WriteLine(
-                                    $"Target= {(target.Length < 18 ? target : target.Substring(0, 17) + "...")}, " +
-                                    $"Progress= {count}/{targetLists.Count} ({Math.Round(count * 100 / (double) targetLists.Count, 2)}%), Blocklist= {blocklist.Count}");
-
-                                if (!Console.KeyAvailable) continue;
-                                while (Console.KeyAvailable)
-                                    Console.ReadKey(true);
-                                Console.WriteLine("Do you want stop processing this list and targets?");
-                                if (DialogResult.Yes != MessageBox.Show("Do you want stop processing this list and targets?",
-                                        "Stop ?",
-                                        MessageBoxButtons.YesNo, MessageBoxIcon.Question)) continue;
-                                rateLimit = null;
-                                userStopped = true;
-                                break;
-                            }
-
-                            if (rateLimit == null) continue;
-
-                            TimeSpan wait = rateLimit.thrownAt.AddMinutes(15) - DateTime.Now;
-                            if (wait < TimeSpan.Zero) continue;
-
-                            Console.WriteLine($"Wait {wait:g} for Rate limit...");
-                            Thread.Sleep(wait);
-                        } while (rateLimit != null);
-                    }
-                }
-
-                Console.Write("Finished ! Do you want continue? (Y/N) : ");
-                readLine = Console.ReadLine();
-                if ((readLine != null) && readLine.ToUpper().Trim().Equals("N"))
-                    break;
+                if (!Console.KeyAvailable) continue;
+                while (Console.KeyAvailable)
+                    Console.ReadKey(true);
+                Console.WriteLine("Do you want stop reset blocklist?");
+                if (DialogResult.Yes != MessageBox.Show("Do you want stop reset blocklist?",
+                        "Stop ?",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question)) continue;
+                rateLimit = null;
+                userStopped = true;
+                break;
             }
 
-            Console.Write("Do you want export your block list? (Y/N) : ");
+            //Console.Write("Do you want export your block list? (Y/N) : ");
+            //readLine = Console.ReadLine();
+            //if ((readLine != null) && readLine.ToUpper().Trim().Equals("Y"))
+            //    File.WriteAllText($"blocklist_{DateTime.Now:yyyy-MM-dd_HHmm}.csv", string.Join(",", blocklist));
+
+
+            Console.Write("Finished !");
+            settings.SetValue("Authenticate", "AccessToken", "");
+            settings.SetValue("Authenticate", "AccessSecret", "");
+            settings.Save();
             readLine = Console.ReadLine();
-            if ((readLine != null) && readLine.ToUpper().Trim().Equals("Y"))
-                File.WriteAllText($"blocklist_{DateTime.Now:yyyy-MM-dd_HHmm}.csv", string.Join(",", blocklist));
         }
 
         private static void GetTargetSearchResult(TwitterApi twitter, string target, bool isNewReq, HashSet<string> targetLists)
