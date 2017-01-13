@@ -7,8 +7,8 @@
     <ProjectGuid>{B9651D2A-F860-427B-B7C4-A72ABF85A2F6}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>BlockThemAll</RootNamespace>
-    <AssemblyName>BlockThemAll</AssemblyName>
+    <RootNamespace>BlockResetter</RootNamespace>
+    <AssemblyName>BlockResetter</AssemblyName>
     <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
