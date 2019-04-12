@@ -56,6 +56,7 @@ namespace BlockResetter
             dic.Add("oauth_timestamp", GetTimeStamp());
             dic.Add("oauth_signature_method", "HMAC-SHA1");
             dic.Add("oauth_version", "1.0");
+	    dic.Add("oauth_callback", "oob");
 
             string hashKey = $"{UrlEncode(App.Secret)}&{(User.Secret == null ? null : UrlEncode(User.Secret))}";
             string hashData =
